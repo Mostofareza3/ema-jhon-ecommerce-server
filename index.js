@@ -2,17 +2,46 @@ const express = require('express');
 const { MongoClient } = require('mongodb');
 require('dotenv').config();
 const cors = require('cors');
+var admin = require("firebase-admin");
+
 
 const app = express();
 const port = process.env.PORT || 5000;
+
+//firebase Initialization
+
+var serviceAccount = require('./ema-jhon-online-shop-firebase-adminsdk-wn2ki-88f71df0b1.json');
+
+admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount)
+});
 
 // middleware
 app.use(cors());
 app.use(express.json());
 
-// const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.swu9d.mongodb.net/emaJhon?retryWrites=true&w=majority`;
-const uri = `mongodb+srv://ema-jhon:Sefb8i1YL9uD6Nz1@cluster0.myaif.mongodb.net/emaJhon?retryWrites=true&w=majority`;
+
+const uri = process.env.MONGO_URL;
 const client = new MongoClient(uri, { useNewUrlParser: true, useUnifiedTopology: true });
+
+
+
+//verify Token function
+
+async function verifyToken(req, res, next) {
+    if (req.headers.authorization?.startsWith('Bearer ')) {
+        const idToken = req.headers.authorization.split(' ')[1];
+        try {
+            const decodedUser = await admin.auth().verifyIdToken(idToken);
+            req.decodedUserEmail = decodedUser.email;
+        } catch (error) {
+            console.log(error)
+        }
+
+    }
+
+    next();
+}
 
 async function run() {
     try {
@@ -53,9 +82,26 @@ async function run() {
         // Add Orders API
         app.post('/orders', async (req, res) => {
             const order = req.body;
+            order.createdAt = new Date();
             const result = await orderCollection.insertOne(order);
             res.json(result);
-        })
+        });
+
+        //Get orders items 
+        app.get('/orders', verifyToken, async (req, res) => {
+            const email = req.query.email;
+
+            //decodedUserEmail comes from verifyToken function above;
+            if (req.decodedUserEmail === email) {
+
+                let query = { email: email };
+                const cursor = orderCollection.find(query);
+                const orders = await cursor.toArray();
+                res.json(orders)
+            } else {
+                res.status(401).json({ message: "user not authorized!" })
+            }
+        });
 
     }
     finally {
